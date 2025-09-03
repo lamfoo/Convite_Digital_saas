@@ -3,9 +3,9 @@
  * User profile management page
  */
 
-require_once '../config/config.php';
-require_once '../config/database.php';
-require_once '../vendor/autoload.php';
+require_once 'config/config.php';
+require_once 'config/database.php';
+require_once 'autoload.php';
 
 use App\Auth;
 use App\User;

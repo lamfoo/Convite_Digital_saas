@@ -3,9 +3,9 @@
  * Public invitation view and RSVP page
  */
 
-require_once '../config/config.php';
-require_once '../config/database.php';
-require_once '../vendor/autoload.php';
+require_once 'config/config.php';
+require_once 'config/database.php';
+require_once 'autoload.php';
 
 use App\Invitation;
 use App\Template;

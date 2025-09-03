@@ -1,46 +1,58 @@
 <?php
 /**
- * Login page
+ * Simplified login page for shared hosting
  */
 
-require_once 'config/config.php';
-require_once 'config/database.php';
-require_once 'autoload.php';
-
-use App\Auth;
-
-$database = new Database();
-$db = $database->getConnection();
-$auth = new Auth($db);
-
-// Redirect if already authenticated
-if ($auth->isAuthenticated()) {
-    header('Location: /dashboard.php');
-    exit();
-}
+require_once 'simple-config.php';
 
 $error_message = '';
 $success_message = '';
 
+// Handle login
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
-        $error_message = 'Invalid CSRF token';
+    $email = sanitize_input($_POST['email'] ?? '');
+    $password = $_POST['password'] ?? '';
+    
+    if (empty($email) || empty($password)) {
+        $error_message = 'Email and password are required';
     } else {
-        $email = sanitize_input($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
-        
-        if (empty($email) || empty($password)) {
-            $error_message = 'Email and password are required';
-        } else {
-            $result = $auth->login($email, $password);
-            if ($result['success']) {
-                header('Location: /dashboard.php');
-                exit();
+        try {
+            $db = new SimpleDatabase();
+            $conn = $db->getConnection();
+            
+            $stmt = $conn->prepare("SELECT id, email, password, first_name, last_name, role, subscription_tier FROM users WHERE email = ?");
+            $stmt->execute([$email]);
+            
+            if ($stmt->rowCount() === 0) {
+                $error_message = 'Invalid email or password';
             } else {
-                $error_message = $result['message'];
+                $user = $stmt->fetch();
+                
+                if (password_verify($password, $user['password'])) {
+                    // Login successful
+                    $_SESSION['user_id'] = $user['id'];
+                    $_SESSION['user_email'] = $user['email'];
+                    $_SESSION['user_role'] = $user['role'];
+                    $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
+                    $_SESSION['subscription_tier'] = $user['subscription_tier'];
+                    
+                    header('Location: dashboard.php');
+                    exit();
+                } else {
+                    $error_message = 'Invalid email or password';
+                }
             }
+        } catch (Exception $e) {
+            $error_message = 'Login failed. Please try again.';
+            error_log("Login error: " . $e->getMessage());
         }
     }
+}
+
+// Check if already logged in
+if (isset($_SESSION['user_id'])) {
+    header('Location: dashboard.php');
+    exit();
 }
 ?>
 <!DOCTYPE html>
@@ -52,9 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -89,20 +98,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php if ($error_message): ?>
                         <div class="alert alert-danger" role="alert">
                             <i class="fas fa-exclamation-triangle me-2"></i>
-                            <?= htmlspecialchars($error_message) ?>
+                            <?php echo htmlspecialchars($error_message); ?>
                         </div>
                         <?php endif; ?>
 
                         <?php if ($success_message): ?>
                         <div class="alert alert-success" role="alert">
                             <i class="fas fa-check-circle me-2"></i>
-                            <?= htmlspecialchars($success_message) ?>
+                            <?php echo htmlspecialchars($success_message); ?>
                         </div>
                         <?php endif; ?>
 
-                        <form method="POST" action="/login.php">
-                            <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-                            
+                        <form method="POST" action="simple-login.php">
                             <div class="mb-3">
                                 <label for="email" class="form-label">Email address</label>
                                 <div class="input-group">
@@ -110,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <i class="fas fa-envelope"></i>
                                     </span>
                                     <input type="email" class="form-control" id="email" name="email" 
-                                           value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required>
+                                           value="<?php echo htmlspecialchars($_POST['email'] ?? 'admin@example.com'); ?>" required>
                                 </div>
                             </div>
                             
@@ -120,18 +127,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <span class="input-group-text">
                                         <i class="fas fa-lock"></i>
                                     </span>
-                                    <input type="password" class="form-control" id="password" name="password" required>
+                                    <input type="password" class="form-control" id="password" name="password" 
+                                           value="admin123" required>
                                     <button class="btn btn-outline-secondary" type="button" onclick="togglePassword()">
                                         <i class="fas fa-eye" id="passwordToggle"></i>
                                     </button>
                                 </div>
-                            </div>
-                            
-                            <div class="mb-3 form-check">
-                                <input type="checkbox" class="form-check-input" id="remember">
-                                <label class="form-check-label" for="remember">
-                                    Remember me
-                                </label>
+                                <div class="form-text">Default admin: admin@example.com / admin123</div>
                             </div>
                             
                             <button type="submit" class="btn btn-primary w-100 mb-3">
@@ -141,14 +143,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </form>
 
                         <div class="text-center">
-                            <a href="/forgot-password.php" class="text-decoration-none">Forgot your password?</a>
+                            <a href="index.php" class="text-decoration-none">
+                                <i class="fas fa-arrow-left me-1"></i>Back to Home
+                            </a>
                         </div>
                         
                         <hr class="my-4">
                         
-                        <div class="text-center">
-                            <span class="text-muted">Don't have an account?</span>
-                            <a href="/register.php" class="text-decoration-none fw-bold">Sign up</a>
+                        <div class="alert alert-info">
+                            <small>
+                                <strong>Demo Credentials:</strong><br>
+                                Email: admin@example.com<br>
+                                Password: admin123
+                            </small>
                         </div>
                     </div>
                 </div>
