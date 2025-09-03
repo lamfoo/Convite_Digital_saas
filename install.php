@@ -204,8 +204,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <?php endif; ?>
 
-                        <?php switch ($step): ?>
-                        <?php case 1: ?>
+                        <?php if ($step == 1): ?>
                         <div class="text-center">
                             <h4>Welcome to Digital Invitations Setup</h4>
                             <p class="text-muted mb-4">This installer will help you set up your SaaS platform in a few simple steps.</p>
@@ -236,9 +235,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <i class="fas fa-arrow-right me-2"></i>Start Installation
                             </a>
                         </div>
-                        <?php break; ?>
+                        <?php endif; ?>
 
-                        <?php case 2: ?>
+                        <?php elseif ($step == 2): ?>
                         <form method="POST">
                             <h4 class="mb-4">Database Configuration</h4>
                             
@@ -288,9 +287,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </button>
                             </div>
                         </form>
-                        <?php break; ?>
+                        <?php endif; ?>
 
-                        <?php case 3: ?>
+                        <?php elseif ($step == 3): ?>
                         <form method="POST">
                             <!-- Preserve database config -->
                             <?php if (isset($db_config)): ?>
@@ -367,9 +366,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </button>
                             </div>
                         </form>
-                        <?php break; ?>
-
-                        <?php case 4: ?>
+                        <?php elseif ($step == 4): ?>
                         <form method="POST">
                             <h4 class="mb-4">Database Setup</h4>
                             <p class="text-muted mb-4">Create database tables and insert sample data</p>
@@ -386,9 +383,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </button>
                             </div>
                         </form>
-                        <?php break; ?>
-
-                        <?php case 5: ?>
+                        <?php elseif ($step == 5): ?>
                         <div class="text-center">
                             <div class="mb-4">
                                 <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
@@ -424,9 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </ul>
                             </div>
                         </div>
-                        <?php break; ?>
-
-                        <?php endswitch; ?>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
