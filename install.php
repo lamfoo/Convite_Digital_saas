@@ -8,95 +8,110 @@ if (file_exists('.env') && !empty($_ENV['APP_ENV']) && $_ENV['APP_ENV'] !== 'dev
     die('Installation script cannot be run in production environment.');
 }
 
-$step = $_GET['step'] ?? 1;
+$step = (int)($_GET['step'] ?? 1);
 $error = '';
 $success = '';
+$db_config = [];
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    switch ($step) {
-        case 2:
-            // Database configuration
-            $db_config = [
-                'DB_HOST' => $_POST['db_host'] ?? 'localhost',
-                'DB_PORT' => $_POST['db_port'] ?? '3306',
-                'DB_NAME' => $_POST['db_name'] ?? 'digital_invitations',
-                'DB_USER' => $_POST['db_user'] ?? 'root',
-                'DB_PASS' => $_POST['db_pass'] ?? '',
-            ];
+    if ($step == 2) {
+        // Database configuration
+        $db_config = [
+            'DB_HOST' => $_POST['db_host'] ?? 'localhost',
+            'DB_PORT' => $_POST['db_port'] ?? '3306',
+            'DB_NAME' => $_POST['db_name'] ?? 'digital_invitations',
+            'DB_USER' => $_POST['db_user'] ?? 'root',
+            'DB_PASS' => $_POST['db_pass'] ?? '',
+        ];
 
-            // Test database connection
-            try {
-                $dsn = "mysql:host={$db_config['DB_HOST']};port={$db_config['DB_PORT']};charset=utf8mb4";
-                $pdo = new PDO($dsn, $db_config['DB_USER'], $db_config['DB_PASS']);
-                $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                
-                // Create database if it doesn't exist
-                $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_config['DB_NAME']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                
-                $success = 'Database connection successful!';
-                $step = 3;
-            } catch (PDOException $e) {
-                $error = 'Database connection failed: ' . $e->getMessage();
-            }
-            break;
-
-        case 3:
-            // Application configuration
-            $app_config = [
-                'APP_URL' => rtrim($_POST['app_url'] ?? 'http://localhost', '/'),
-                'APP_SECRET_KEY' => $_POST['app_secret'] ?? bin2hex(random_bytes(32)),
-                'SMTP_HOST' => $_POST['smtp_host'] ?? '',
-                'SMTP_PORT' => $_POST['smtp_port'] ?? '587',
-                'SMTP_USERNAME' => $_POST['smtp_username'] ?? '',
-                'SMTP_PASSWORD' => $_POST['smtp_password'] ?? '',
-                'SMTP_ENCRYPTION' => $_POST['smtp_encryption'] ?? 'tls',
-            ];
-
-            // Merge with database config from previous step
-            $full_config = array_merge($db_config ?? [], $app_config);
+        // Test database connection
+        try {
+            $dsn = "mysql:host={$db_config['DB_HOST']};port={$db_config['DB_PORT']};charset=utf8mb4";
+            $pdo = new PDO($dsn, $db_config['DB_USER'], $db_config['DB_PASS']);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             
-            // Create .env file
-            $env_content = '';
-            foreach ($full_config as $key => $value) {
-                $env_content .= "{$key}={$value}\n";
-            }
+            // Create database if it doesn't exist
+            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_config['DB_NAME']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
             
-            if (file_put_contents('.env', $env_content)) {
-                $success = 'Configuration saved successfully!';
-                $step = 4;
-            } else {
-                $error = 'Failed to save configuration file';
-            }
-            break;
+            $success = 'Database connection successful!';
+            $step = 3;
+            // Store db_config in session for next step
+            session_start();
+            $_SESSION['db_config'] = $db_config;
+        } catch (PDOException $e) {
+            $error = 'Database connection failed: ' . $e->getMessage();
+        }
+    } elseif ($step == 3) {
+        // Application configuration
+        session_start();
+        $db_config = $_SESSION['db_config'] ?? [];
+        
+        $app_config = [
+            'APP_URL' => rtrim($_POST['app_url'] ?? 'http://localhost', '/'),
+            'APP_SECRET_KEY' => $_POST['app_secret'] ?? bin2hex(random_bytes(32)),
+            'SMTP_HOST' => $_POST['smtp_host'] ?? '',
+            'SMTP_PORT' => $_POST['smtp_port'] ?? '587',
+            'SMTP_USERNAME' => $_POST['smtp_username'] ?? '',
+            'SMTP_PASSWORD' => $_POST['smtp_password'] ?? '',
+            'SMTP_ENCRYPTION' => $_POST['smtp_encryption'] ?? 'tls',
+        ];
 
-        case 4:
-            // Database setup
-            try {
-                // Load the new configuration
-                require_once 'config/config.php';
-                require_once 'config/database.php';
-                
-                $database = new Database();
-                $db = $database->getConnection();
-                
-                // Read and execute schema
-                $schema = file_get_contents('database/schema.sql');
-                $statements = array_filter(array_map('trim', explode(';', $schema)));
-                
-                foreach ($statements as $statement) {
-                    if (!empty($statement)) {
-                        $db->exec($statement);
-                    }
+        // Merge with database config from previous step
+        $full_config = array_merge($db_config, $app_config);
+        
+        // Create .env file
+        $env_content = '';
+        foreach ($full_config as $key => $value) {
+            $env_content .= "{$key}={$value}\n";
+        }
+        
+        if (file_put_contents('.env', $env_content)) {
+            $success = 'Configuration saved successfully!';
+            $step = 4;
+        } else {
+            $error = 'Failed to save configuration file';
+        }
+    } elseif ($step == 4) {
+        // Database setup
+        try {
+            // Load the new configuration
+            if (file_exists('.env')) {
+                $lines = file('.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                foreach ($lines as $line) {
+                    if (strpos(trim($line), '#') === 0) continue;
+                    list($name, $value) = explode('=', $line, 2);
+                    $name = trim($name);
+                    $value = trim($value);
+                    $_ENV[$name] = $value;
                 }
-                
-                $success = 'Database tables created successfully!';
-                $step = 5;
-            } catch (Exception $e) {
-                $error = 'Database setup failed: ' . $e->getMessage();
             }
-            break;
+            
+            $dsn = "mysql:host={$_ENV['DB_HOST']};port={$_ENV['DB_PORT']};dbname={$_ENV['DB_NAME']};charset=utf8mb4";
+            $pdo = new PDO($dsn, $_ENV['DB_USER'], $_ENV['DB_PASS']);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            
+            // Read and execute schema
+            $schema = file_get_contents('database/schema.sql');
+            $statements = array_filter(array_map('trim', explode(';', $schema)));
+            
+            foreach ($statements as $statement) {
+                if (!empty($statement)) {
+                    $pdo->exec($statement);
+                }
+            }
+            
+            $success = 'Database tables created successfully!';
+            $step = 5;
+        } catch (Exception $e) {
+            $error = 'Database setup failed: ' . $e->getMessage();
+        }
     }
+}
+
+// Get db_config from session if available
+if (!empty($_SESSION['db_config'])) {
+    $db_config = $_SESSION['db_config'];
 }
 ?>
 <!DOCTYPE html>
@@ -168,11 +183,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <!-- Step Indicator -->
                         <div class="step-indicator text-center">
-                            <span class="step <?= $step >= 1 ? ($step == 1 ? 'active' : 'completed') : 'pending' ?>">1</span>
-                            <span class="step <?= $step >= 2 ? ($step == 2 ? 'active' : 'completed') : 'pending' ?>">2</span>
-                            <span class="step <?= $step >= 3 ? ($step == 3 ? 'active' : 'completed') : 'pending' ?>">3</span>
-                            <span class="step <?= $step >= 4 ? ($step == 4 ? 'active' : 'completed') : 'pending' ?>">4</span>
-                            <span class="step <?= $step >= 5 ? 'active' : 'pending' ?>">5</span>
+                            <span class="step <?php echo $step >= 1 ? ($step == 1 ? 'active' : 'completed') : 'pending'; ?>">1</span>
+                            <span class="step <?php echo $step >= 2 ? ($step == 2 ? 'active' : 'completed') : 'pending'; ?>">2</span>
+                            <span class="step <?php echo $step >= 3 ? ($step == 3 ? 'active' : 'completed') : 'pending'; ?>">3</span>
+                            <span class="step <?php echo $step >= 4 ? ($step == 4 ? 'active' : 'completed') : 'pending'; ?>">4</span>
+                            <span class="step <?php echo $step >= 5 ? 'active' : 'pending'; ?>">5</span>
                             
                             <div class="mt-2">
                                 <small class="text-muted">
@@ -193,18 +208,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php if ($error): ?>
                         <div class="alert alert-danger" role="alert">
                             <i class="fas fa-exclamation-triangle me-2"></i>
-                            <?= htmlspecialchars($error) ?>
+                            <?php echo htmlspecialchars($error); ?>
                         </div>
                         <?php endif; ?>
 
                         <?php if ($success): ?>
                         <div class="alert alert-success" role="alert">
                             <i class="fas fa-check-circle me-2"></i>
-                            <?= htmlspecialchars($success) ?>
+                            <?php echo htmlspecialchars($success); ?>
                         </div>
                         <?php endif; ?>
 
                         <?php if ($step == 1): ?>
+                        <!-- Step 1: Welcome -->
                         <div class="text-center">
                             <h4>Welcome to Digital Invitations Setup</h4>
                             <p class="text-muted mb-4">This installer will help you set up your SaaS platform in a few simple steps.</p>
@@ -214,18 +230,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <ul class="list-unstyled">
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success me-2"></i>PHP 8.0 or higher
-                                        <span class="text-muted">(Current: <?= PHP_VERSION ?>)</span>
+                                        <span class="text-muted">(Current: <?php echo PHP_VERSION; ?>)</span>
                                     </li>
                                     <li class="mb-2">
-                                        <i class="fas fa-<?= extension_loaded('pdo') ? 'check text-success' : 'times text-danger' ?> me-2"></i>
+                                        <i class="fas fa-<?php echo extension_loaded('pdo') ? 'check text-success' : 'times text-danger'; ?> me-2"></i>
                                         PDO Extension
                                     </li>
                                     <li class="mb-2">
-                                        <i class="fas fa-<?= extension_loaded('pdo_mysql') ? 'check text-success' : 'times text-danger' ?> me-2"></i>
+                                        <i class="fas fa-<?php echo extension_loaded('pdo_mysql') ? 'check text-success' : 'times text-danger'; ?> me-2"></i>
                                         PDO MySQL Extension
                                     </li>
                                     <li class="mb-2">
-                                        <i class="fas fa-<?= is_writable('.') ? 'check text-success' : 'times text-danger' ?> me-2"></i>
+                                        <i class="fas fa-<?php echo is_writable('.') ? 'check text-success' : 'times text-danger'; ?> me-2"></i>
                                         Writable Directory
                                     </li>
                                 </ul>
@@ -235,9 +251,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <i class="fas fa-arrow-right me-2"></i>Start Installation
                             </a>
                         </div>
-                        <?php endif; ?>
 
                         <?php elseif ($step == 2): ?>
+                        <!-- Step 2: Database Configuration -->
                         <form method="POST">
                             <h4 class="mb-4">Database Configuration</h4>
                             
@@ -287,14 +303,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </button>
                             </div>
                         </form>
-                        <?php endif; ?>
 
                         <?php elseif ($step == 3): ?>
+                        <!-- Step 3: Application Configuration -->
                         <form method="POST">
                             <!-- Preserve database config -->
-                            <?php if (isset($db_config)): ?>
+                            <?php if (!empty($db_config)): ?>
                             <?php foreach ($db_config as $key => $value): ?>
-                            <input type="hidden" name="<?= strtolower($key) ?>" value="<?= htmlspecialchars($value) ?>">
+                            <input type="hidden" name="<?php echo strtolower($key); ?>" value="<?php echo htmlspecialchars($value); ?>">
                             <?php endforeach; ?>
                             <?php endif; ?>
                             
@@ -303,14 +319,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="mb-3">
                                 <label for="app_url" class="form-label">Application URL</label>
                                 <input type="url" class="form-control" id="app_url" name="app_url" 
-                                       value="http://<?= $_SERVER['HTTP_HOST'] ?>" required>
+                                       value="http://<?php echo $_SERVER['HTTP_HOST']; ?>" required>
                                 <div class="form-text">The URL where your application will be accessible</div>
                             </div>
                             
                             <div class="mb-3">
                                 <label for="app_secret" class="form-label">Application Secret Key</label>
                                 <input type="text" class="form-control" id="app_secret" name="app_secret" 
-                                       value="<?= bin2hex(random_bytes(32)) ?>" required>
+                                       value="<?php echo bin2hex(random_bytes(32)); ?>" required>
                                 <div class="form-text">Keep this secret and secure</div>
                             </div>
                             
@@ -366,7 +382,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </button>
                             </div>
                         </form>
+
                         <?php elseif ($step == 4): ?>
+                        <!-- Step 4: Database Setup -->
                         <form method="POST">
                             <h4 class="mb-4">Database Setup</h4>
                             <p class="text-muted mb-4">Create database tables and insert sample data</p>
@@ -383,7 +401,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </button>
                             </div>
                         </form>
+
                         <?php elseif ($step == 5): ?>
+                        <!-- Step 5: Installation Complete -->
                         <div class="text-center">
                             <div class="mb-4">
                                 <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
