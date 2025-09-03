@@ -205,7 +205,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php endif; ?>
 
                         <?php switch ($step): ?>
-                        
                         <?php case 1: ?>
                         <div class="text-center">
                             <h4>Welcome to Digital Invitations Setup</h4>
