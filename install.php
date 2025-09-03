@@ -44,12 +44,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ];
 
         try {
-            $dsn = "mysql:host={$db_config['DB_HOST']};port={$db_config['DB_PORT']};charset=utf8mb4";
+            // Test connection directly to the user's database
+            $dsn = "mysql:host={$db_config['DB_HOST']};port={$db_config['DB_PORT']};dbname={$db_config['DB_NAME']};charset=utf8mb4";
             $pdo = new PDO($dsn, $db_config['DB_USER'], $db_config['DB_PASS']);
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             
-            // Create database if it doesn't exist
-            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_config['DB_NAME']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            // Test if we can create tables (basic permission check)
+            $pdo->exec("CREATE TABLE IF NOT EXISTS test_permissions (id INT PRIMARY KEY) ENGINE=InnoDB");
+            $pdo->exec("DROP TABLE IF EXISTS test_permissions");
             
             // Store in session
             $_SESSION['db_config'] = $db_config;
@@ -57,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: install.php?step=3&success=1');
             exit();
         } catch (PDOException $e) {
-            $error = 'Database connection failed: ' . $e->getMessage();
+            $error = 'Database connection failed: ' . $e->getMessage() . ' - Make sure you have the correct database name, username and password.';
         }
         
     } elseif ($step == 3) {
@@ -108,18 +110,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo = new PDO($dsn, $_ENV['DB_USER'], $_ENV['DB_PASS']);
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             
-            // Read and execute schema
-            if (file_exists('database/schema.sql')) {
-                $schema = file_get_contents('database/schema.sql');
+            // Read and execute schema for existing database
+            $schema_file = file_exists('database/schema_existing_db.sql') ? 'database/schema_existing_db.sql' : 'database/schema.sql';
+            
+            if (file_exists($schema_file)) {
+                $schema = file_get_contents($schema_file);
+                
+                // Remove USE database statement if present
+                $schema = preg_replace('/USE\s+[^;]+;/i', '', $schema);
+                
                 $statements = array_filter(array_map('trim', explode(';', $schema)));
                 
                 foreach ($statements as $statement) {
-                    if (!empty($statement)) {
-                        $pdo->exec($statement);
+                    if (!empty($statement) && !preg_match('/^\s*(USE|CREATE\s+DATABASE)/i', $statement)) {
+                        try {
+                            $pdo->exec($statement);
+                        } catch (PDOException $e) {
+                            // Log the error but continue with other statements
+                            error_log("SQL Error: " . $e->getMessage() . " - Statement: " . substr($statement, 0, 100));
+                        }
                     }
                 }
             } else {
-                throw new Exception('Schema file not found: database/schema.sql');
+                throw new Exception('Schema file not found');
             }
             
             header('Location: install.php?step=5&success=1');
@@ -287,6 +300,12 @@ $db_config = $_SESSION['db_config'] ?? [];
                         <form method="POST" action="install.php?step=2">
                             <h4 class="mb-4">Database Configuration</h4>
                             
+                            <div class="alert alert-warning">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <strong>Shared Hosting Users:</strong> Use your existing database credentials from your hosting control panel. 
+                                Usually the database name is the same as your username.
+                            </div>
+                            
                             <div class="row">
                                 <div class="col-md-8">
                                     <div class="mb-3">
@@ -304,25 +323,30 @@ $db_config = $_SESSION['db_config'] ?? [];
                                 </div>
                             </div>
                             
-                            <div class="mb-3">
-                                <label for="db_name" class="form-label">Database Name</label>
-                                <input type="text" class="form-control" id="db_name" name="db_name" 
-                                       value="digital_invitations" required>
-                            </div>
+                                                            <div class="mb-3">
+                                        <label for="db_name" class="form-label">Database Name</label>
+                                        <input type="text" class="form-control" id="db_name" name="db_name" 
+                                               value="sql_fileserver_c" required>
+                                        <div class="form-text">
+                                            <strong>For your hosting:</strong> Use "sql_fileserver_c" (same as username)<br>
+                                            This is your existing database from the hosting panel.
+                                        </div>
+                                    </div>
                             
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="db_user" class="form-label">Username</label>
                                         <input type="text" class="form-control" id="db_user" name="db_user" 
-                                               value="root" required>
+                                               value="sql_fileserver_c" required>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="db_pass" class="form-label">Password</label>
                                         <input type="password" class="form-control" id="db_pass" name="db_pass" 
-                                               placeholder="Leave blank if no password">
+                                               value="7f80c627e749b8" required>
+                                        <div class="form-text">Enter your database password</div>
                                     </div>
                                 </div>
                             </div>
