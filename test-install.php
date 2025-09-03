@@ -1,15 +1,9 @@
 <?php
 /**
- * Installation script for Digital Invitations SaaS Platform
+ * Simplified installation script for testing
  */
 
-// Start session
 session_start();
-
-// Prevent running in production
-if (file_exists('.env') && !empty($_ENV['APP_ENV']) && $_ENV['APP_ENV'] !== 'development') {
-    die('Installation script cannot be run in production environment.');
-}
 
 $step = (int)($_GET['step'] ?? 1);
 $error = '';
@@ -25,46 +19,45 @@ if (isset($_GET['success'])) {
             $success = 'Configuration saved successfully!';
             break;
         case 5:
-            $success = 'Database setup completed successfully!';
+            $success = 'Database tables created successfully!';
             break;
     }
 }
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
     if ($step == 2) {
-        // Database configuration test
-        $db_config = [
-            'DB_HOST' => $_POST['db_host'] ?? 'localhost',
-            'DB_PORT' => $_POST['db_port'] ?? '3306',
-            'DB_NAME' => $_POST['db_name'] ?? 'digital_invitations',
-            'DB_USER' => $_POST['db_user'] ?? 'root',
-            'DB_PASS' => $_POST['db_pass'] ?? '',
-        ];
-
+        // Test database connection
         try {
-            $dsn = "mysql:host={$db_config['DB_HOST']};port={$db_config['DB_PORT']};charset=utf8mb4";
-            $pdo = new PDO($dsn, $db_config['DB_USER'], $db_config['DB_PASS']);
+            $host = $_POST['db_host'] ?? 'localhost';
+            $port = $_POST['db_port'] ?? '3306';
+            $dbname = $_POST['db_name'] ?? 'digital_invitations';
+            $user = $_POST['db_user'] ?? 'root';
+            $pass = $_POST['db_pass'] ?? '';
+            
+            $dsn = "mysql:host={$host};port={$port};charset=utf8mb4";
+            $pdo = new PDO($dsn, $user, $pass);
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             
-            // Create database if it doesn't exist
-            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_config['DB_NAME']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            // Store config in session
+            $_SESSION['db_config'] = [
+                'DB_HOST' => $host,
+                'DB_PORT' => $port,
+                'DB_NAME' => $dbname,
+                'DB_USER' => $user,
+                'DB_PASS' => $pass,
+            ];
             
-            // Store in session
-            $_SESSION['db_config'] = $db_config;
-            
-            header('Location: install.php?step=3&success=1');
+            header('Location: test-install.php?step=3&success=1');
             exit();
         } catch (PDOException $e) {
             $error = 'Database connection failed: ' . $e->getMessage();
         }
-        
     } elseif ($step == 3) {
-        // Application configuration
+        // Save configuration
         $db_config = $_SESSION['db_config'] ?? [];
         
-        $app_config = [
+        $full_config = array_merge($db_config, [
             'APP_URL' => rtrim($_POST['app_url'] ?? 'http://localhost', '/'),
             'APP_SECRET_KEY' => $_POST['app_secret'] ?? bin2hex(random_bytes(32)),
             'SMTP_HOST' => $_POST['smtp_host'] ?? '',
@@ -72,10 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'SMTP_USERNAME' => $_POST['smtp_username'] ?? '',
             'SMTP_PASSWORD' => $_POST['smtp_password'] ?? '',
             'SMTP_ENCRYPTION' => $_POST['smtp_encryption'] ?? 'tls',
-        ];
-
-        // Merge configurations
-        $full_config = array_merge($db_config, $app_config);
+        ]);
         
         // Create .env file
         $env_content = '';
@@ -84,14 +74,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         if (file_put_contents('.env', $env_content)) {
-            header('Location: install.php?step=4&success=1');
+            header('Location: test-install.php?step=4&success=1');
             exit();
         } else {
             $error = 'Failed to save configuration file. Check directory permissions.';
         }
-        
     } elseif ($step == 4) {
-        // Database setup
+        // Setup database
         try {
             // Load configuration
             if (file_exists('.env')) {
@@ -118,11 +107,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->exec($statement);
                     }
                 }
-            } else {
-                throw new Exception('Schema file not found: database/schema.sql');
             }
             
-            header('Location: install.php?step=5&success=1');
+            header('Location: test-install.php?step=5&success=1');
             exit();
         } catch (Exception $e) {
             $error = 'Database setup failed: ' . $e->getMessage();
@@ -228,11 +215,13 @@ $db_config = $_SESSION['db_config'] ?? [];
                         <!-- Debug Info -->
                         <div class="alert alert-info">
                             <small>
-                                <strong>Debug:</strong> Step: <?php echo $step; ?> | 
-                                Method: <?php echo $_SERVER['REQUEST_METHOD']; ?> |
-                                POST data: <?php echo !empty($_POST) ? 'Yes' : 'No'; ?> |
-                                DB Config: <?php echo !empty($db_config) ? 'Yes' : 'No'; ?> |
-                                Success param: <?php echo isset($_GET['success']) ? 'Yes' : 'No'; ?>
+                                <strong>Debug:</strong> Current step: <?php echo $step; ?>
+                                <?php if (!empty($_POST)): ?>
+                                | POST received: Yes
+                                <?php endif; ?>
+                                <?php if (!empty($db_config)): ?>
+                                | DB Config: Yes
+                                <?php endif; ?>
                             </small>
                         </div>
 
@@ -250,8 +239,8 @@ $db_config = $_SESSION['db_config'] ?? [];
                         </div>
                         <?php endif; ?>
 
-                        <!-- Step Content -->
                         <?php if ($step == 1): ?>
+                        <!-- Step 1: Welcome -->
                         <div class="text-center">
                             <h4>Welcome to Digital Invitations Setup</h4>
                             <p class="text-muted mb-4">This installer will help you set up your SaaS platform in a few simple steps.</p>
@@ -278,13 +267,14 @@ $db_config = $_SESSION['db_config'] ?? [];
                                 </ul>
                             </div>
                             
-                            <a href="install.php?step=2" class="btn btn-primary btn-lg">
+                            <a href="?step=2" class="btn btn-primary btn-lg">
                                 <i class="fas fa-arrow-right me-2"></i>Start Installation
                             </a>
                         </div>
 
                         <?php elseif ($step == 2): ?>
-                        <form method="POST" action="install.php?step=2">
+                        <!-- Step 2: Database Configuration -->
+                        <form method="POST" action="test-install.php?step=2">
                             <h4 class="mb-4">Database Configuration</h4>
                             
                             <div class="row">
@@ -321,14 +311,13 @@ $db_config = $_SESSION['db_config'] ?? [];
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="db_pass" class="form-label">Password</label>
-                                        <input type="password" class="form-control" id="db_pass" name="db_pass" 
-                                               placeholder="Leave blank if no password">
+                                        <input type="password" class="form-control" id="db_pass" name="db_pass">
                                     </div>
                                 </div>
                             </div>
                             
                             <div class="d-flex justify-content-between">
-                                <a href="install.php?step=1" class="btn btn-outline-secondary">Back</a>
+                                <a href="test-install.php?step=1" class="btn btn-outline-secondary">Back</a>
                                 <button type="submit" class="btn btn-primary">
                                     <i class="fas fa-database me-2"></i>Test Connection
                                 </button>
@@ -336,7 +325,16 @@ $db_config = $_SESSION['db_config'] ?? [];
                         </form>
 
                         <?php elseif ($step == 3): ?>
-                        <form method="POST" action="install.php?step=3">
+                        <!-- Step 3: Application Configuration -->
+                        <form method="POST" action="test-install.php?step=3">
+                            <!-- Preserve database config -->
+                            <?php 
+                            $db_config = $_SESSION['db_config'] ?? [];
+                            foreach ($db_config as $key => $value): 
+                            ?>
+                            <input type="hidden" name="<?php echo strtolower($key); ?>" value="<?php echo htmlspecialchars($value); ?>">
+                            <?php endforeach; ?>
+                            
                             <h4 class="mb-4">Application Configuration</h4>
                             
                             <div class="mb-3">
@@ -354,7 +352,6 @@ $db_config = $_SESSION['db_config'] ?? [];
                             </div>
                             
                             <h5 class="mb-3 mt-4">Email Configuration (Optional)</h5>
-                            <p class="text-muted small mb-3">Configure SMTP settings to enable email sending. You can skip this and configure later.</p>
                             
                             <div class="row">
                                 <div class="col-md-8">
@@ -399,7 +396,7 @@ $db_config = $_SESSION['db_config'] ?? [];
                             </div>
                             
                             <div class="d-flex justify-content-between">
-                                <a href="install.php?step=2" class="btn btn-outline-secondary">Back</a>
+                                <a href="test-install.php?step=2" class="btn btn-outline-secondary">Back</a>
                                 <button type="submit" class="btn btn-primary">
                                     <i class="fas fa-save me-2"></i>Save Configuration
                                 </button>
@@ -407,7 +404,8 @@ $db_config = $_SESSION['db_config'] ?? [];
                         </form>
 
                         <?php elseif ($step == 4): ?>
-                        <form method="POST" action="install.php?step=4">
+                        <!-- Step 4: Database Setup -->
+                        <form method="POST" action="test-install.php?step=4">
                             <h4 class="mb-4">Database Setup</h4>
                             <p class="text-muted mb-4">Create database tables and insert sample data</p>
                             
@@ -417,7 +415,7 @@ $db_config = $_SESSION['db_config'] ?? [];
                             </div>
                             
                             <div class="d-flex justify-content-between">
-                                <a href="install.php?step=3" class="btn btn-outline-secondary">Back</a>
+                                <a href="test-install.php?step=3" class="btn btn-outline-secondary">Back</a>
                                 <button type="submit" class="btn btn-success">
                                     <i class="fas fa-database me-2"></i>Setup Database
                                 </button>
@@ -425,6 +423,7 @@ $db_config = $_SESSION['db_config'] ?? [];
                         </form>
 
                         <?php elseif ($step == 5): ?>
+                        <!-- Step 5: Installation Complete -->
                         <div class="text-center">
                             <div class="mb-4">
                                 <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
@@ -473,19 +472,11 @@ $db_config = $_SESSION['db_config'] ?? [];
     <script>
         // Add form debugging
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Current step:', <?php echo $step; ?>);
-            console.log('POST data available:', <?php echo !empty($_POST) ? 'true' : 'false'; ?>);
-            console.log('DB config available:', <?php echo !empty($db_config) ? 'true' : 'false'; ?>);
-            
             const forms = document.querySelectorAll('form');
             forms.forEach(form => {
                 form.addEventListener('submit', function(e) {
-                    console.log('Form being submitted to:', this.action);
-                    const formData = new FormData(this);
-                    console.log('Form data entries:');
-                    for (let [key, value] of formData.entries()) {
-                        console.log(key + ':', value);
-                    }
+                    console.log('Form submitted:', this.action);
+                    console.log('Form data:', new FormData(this));
                 });
             });
         });
